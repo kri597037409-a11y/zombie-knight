@@ -10,7 +10,7 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         maven {
             name = 'MinecraftForge'
@@ -20,4 +20,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = 'EliteZombies'
+rootProject.name = 'elite_zombies'
