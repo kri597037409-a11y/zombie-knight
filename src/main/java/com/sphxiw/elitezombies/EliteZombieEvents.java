@@ -32,7 +32,10 @@ import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.HoeItem;
+import net.minecraft.world.item.PickaxeItem;
 import net.minecraft.world.item.ShieldItem;
+import net.minecraft.world.item.ShovelItem;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.TridentItem;
 import net.minecraft.world.item.alchemy.PotionUtils;
@@ -62,20 +65,29 @@ public final class EliteZombieEvents {
     private static final double LARGE_GROUP_ZOMBIE_SPAWN_KEEP_CHANCE = 0.84D;
     private static final double SHIELD_CHANCE = 0.30D;
     private static final double RANDOM_ARMOR_CHANCE = 0.50D;
-    private static final double ZOMBIE_KNIGHT_CHANCE = 0.10D;
+    private static final double DIGGER_CHANCE = 0.10D;
+    private static final double KNIGHT_TRAIT_CHANCE = 0.10D;
+    private static final double SCOUT_CHANCE = 0.10D;
+    private static final double CHASER_CHANCE = 0.20D;
+    private static final double GUARD_CHANCE = 0.40D;
     private static final double ELITE_ZOMBIE_KNIGHT_CHANCE = 0.02D;
     private static final double HELL_KNIGHT_CHANCE = 0.01D;
     private static final double NETHER_HELL_KNIGHT_CHANCE = 0.10D;
     private static final double POTION_USE_CHANCE = 0.28D;
     private static final double TARGET_ZOMBIE_SPEED = 0.31D;
+    private static final double VANILLA_ZOMBIE_SPEED = 0.23D;
+    private static final double PLAYER_SPRINT_ZOMBIE_SPEED = 0.34D;
     private static final double DODGE_NAVIGATION_SPEED = 1.25D;
     private static final double ATTACK_NAVIGATION_SPEED = 1.35D;
     private static final double REGROUP_NAVIGATION_SPEED = 1.05D;
+    private static final double FLEE_NAVIGATION_SPEED = 1.45D;
     private static final int POTION_DRINK_TICKS = 32;
+    private static final int SPECIAL_POTION_DRINK_TICKS = 28;
     private static final int BLOCK_BREAK_TICKS = 48;
     private static final int BLOCK_BREAK_SCAN_INTERVAL = 5;
     private static final int CLUSTER_SCAN_INTERVAL = 40;
     private static final int ROD_CHECK_INTERVAL = 10;
+    private static final int SPECIAL_ABILITY_INTERVAL = 8;
     private static final int PLAYER_NOISE_INTERVAL = 10;
     private static final int INVESTIGATION_REPATH_INTERVAL = 20;
     private static final int SEARCH_WANDER_INTERVAL = 28;
@@ -98,13 +110,25 @@ public final class EliteZombieEvents {
     private static final double ITEM_USE_NOISE_RANGE = 12.0D;
     private static final double LIGHT_CHANGE_NOISE_RANGE = 24.0D;
     private static final double ATTACK_NOISE_RANGE = 30.0D;
+    private static final double KNIGHT_REPORT_RANGE = 18.0D;
+    private static final double SCOUT_REPORT_RANGE = 34.0D;
     private static final double SURROUND_MIN_RADIUS = 3.0D;
     private static final double SURROUND_MAX_RADIUS = 5.0D;
     private static final int MAX_ALLIES_TO_COMMAND = 8;
     private static final int MAX_ZOMBIES_PER_STIMULUS = 24;
+    private static final int TRAIT_REPORT_COOLDOWN = 60;
+    private static final int ENDER_PEARL_COOLDOWN = 180;
+    private static final int SPECIAL_POTION_COOLDOWN = 70;
 
     private static final String NBT_INITIALIZED = "EliteZombiesInitialized";
     private static final String NBT_DEATH_ZOMBIE = "EliteZombiesDeathZombie";
+    private static final String NBT_TRAIT = "EliteZombiesTrait";
+    private static final String TRAIT_DIGGER = "digger";
+    private static final String TRAIT_KNIGHT = "knight";
+    private static final String TRAIT_SCOUT = "scout";
+    private static final String TRAIT_CHASER = "chaser";
+    private static final String TRAIT_GUARD = "guard";
+    private static final String TRAIT_COWARD = "coward";
     private static final String NBT_POTION_DECIDED = "EliteZombiesPotionDecided";
     private static final String NBT_POTION_DRINK_TICKS = "EliteZombiesPotionDrinkTicks";
     private static final String NBT_POTION_KIND = "EliteZombiesPotionKind";
@@ -126,6 +150,15 @@ public final class EliteZombieEvents {
     private static final String NBT_SEARCH_TICKS = "EliteZombiesSearchTicks";
     private static final String NBT_ROUTE_COOLDOWN = "EliteZombiesRouteCooldown";
     private static final String NBT_NEARBY_ZOMBIES = "EliteZombiesNearbyZombies";
+    private static final String NBT_REPORT_COOLDOWN = "EliteZombiesReportCooldown";
+    private static final String NBT_ENDER_PEARL_COOLDOWN = "EliteZombiesEnderPearlCooldown";
+    private static final String NBT_SPECIAL_POTION_TICKS = "EliteZombiesSpecialPotionTicks";
+    private static final String NBT_SPECIAL_POTION_KIND = "EliteZombiesSpecialPotionKind";
+    private static final String NBT_SPECIAL_POTION_DISPLAY = "EliteZombiesSpecialPotionDisplay";
+    private static final String NBT_SPECIAL_POTION_COOLDOWN = "EliteZombiesSpecialPotionCooldown";
+    private static final String SPECIAL_POTION_HARMING_HEAL = "harming_heal";
+    private static final String SPECIAL_POTION_SPEED = "speed";
+    private static final String SPECIAL_POTION_INVISIBILITY = "invisibility";
 
     private static final EquipmentSlot[] ARMOR_SLOTS = {
             EquipmentSlot.HEAD,
@@ -146,6 +179,17 @@ public final class EliteZombieEvents {
             IRON_ARMOR,
             DIAMOND_ARMOR,
             NETHERITE_ARMOR
+    };
+    private static final Item[] ANY_HOES = { Items.WOODEN_HOE, Items.STONE_HOE, Items.IRON_HOE, Items.GOLDEN_HOE, Items.DIAMOND_HOE, Items.NETHERITE_HOE };
+    private static final Item[] ANY_SHOVELS = { Items.WOODEN_SHOVEL, Items.STONE_SHOVEL, Items.IRON_SHOVEL, Items.GOLDEN_SHOVEL, Items.DIAMOND_SHOVEL, Items.NETHERITE_SHOVEL };
+    private static final Item[] ANY_AXES = { Items.WOODEN_AXE, Items.STONE_AXE, Items.IRON_AXE, Items.GOLDEN_AXE, Items.DIAMOND_AXE, Items.NETHERITE_AXE };
+    private static final Item[] ANY_PICKAXES = { Items.WOODEN_PICKAXE, Items.STONE_PICKAXE, Items.IRON_PICKAXE, Items.GOLDEN_PICKAXE, Items.DIAMOND_PICKAXE, Items.NETHERITE_PICKAXE };
+    private static final Item[] ANY_SWORDS = { Items.WOODEN_SWORD, Items.STONE_SWORD, Items.IRON_SWORD, Items.GOLDEN_SWORD, Items.DIAMOND_SWORD, Items.NETHERITE_SWORD };
+    private static final Item[][] DIGGER_TOOL_GROUPS = {
+            ANY_HOES,
+            ANY_SHOVELS,
+            ANY_AXES,
+            ANY_PICKAXES
     };
     private static final Enchantment[] HELL_SWORD_EXTRA_ENCHANTMENTS = {
             Enchantments.UNBREAKING,
@@ -188,6 +232,7 @@ public final class EliteZombieEvents {
                 maybeMaintainLooseGroup(zombie, null);
             }
             tickInvestigation(zombie);
+            handleTraitBehavior(zombie, null, false);
             return;
         }
 
@@ -203,6 +248,11 @@ public final class EliteZombieEvents {
             improveTargetNavigation(zombie, player);
         } else if (handleLostSight(zombie, player)) {
             tickInvestigation(zombie);
+            handleTraitBehavior(zombie, player, false);
+            return;
+        }
+
+        if (handleTraitBehavior(zombie, player, canSeeTarget)) {
             return;
         }
 
@@ -405,45 +455,137 @@ public final class EliteZombieEvents {
     private static void initializeEliteZombie(Zombie zombie, boolean randomGear) {
         CompoundTag data = zombie.getPersistentData();
         data.putBoolean(NBT_INITIALIZED, true);
-        applyEliteAttributes(zombie);
 
         if (randomGear && !data.getBoolean(NBT_DEATH_ZOMBIE)) {
             equipSpawnVariant(zombie);
         }
+        applyEliteAttributes(zombie);
     }
 
     private static void applyEliteAttributes(Zombie zombie) {
-        AttributeInstance speed = zombie.getAttribute(Attributes.MOVEMENT_SPEED);
-        if (speed != null && speed.getBaseValue() < TARGET_ZOMBIE_SPEED) {
-            speed.setBaseValue(TARGET_ZOMBIE_SPEED);
+        String trait = getTrait(zombie);
+        double speed = TARGET_ZOMBIE_SPEED;
+        double followRange = 35.0D;
+
+        if (TRAIT_DIGGER.equals(trait) || TRAIT_GUARD.equals(trait)) {
+            speed = VANILLA_ZOMBIE_SPEED;
+        } else if (TRAIT_CHASER.equals(trait) || TRAIT_COWARD.equals(trait)) {
+            speed = PLAYER_SPRINT_ZOMBIE_SPEED;
+        }
+
+        if (TRAIT_SCOUT.equals(trait)) {
+            followRange = 56.0D;
+        } else if (TRAIT_CHASER.equals(trait)) {
+            followRange = 52.0D;
+        } else if (TRAIT_KNIGHT.equals(trait)) {
+            followRange = 42.0D;
+            setAttributeBase(zombie, Attributes.MAX_HEALTH, 50.0D);
+            if (zombie.getHealth() < zombie.getMaxHealth()) {
+                zombie.setHealth(zombie.getMaxHealth());
+            }
+        }
+
+        setAttributeBase(zombie, Attributes.MOVEMENT_SPEED, speed);
+        setAttributeBase(zombie, Attributes.FOLLOW_RANGE, followRange);
+    }
+
+    private static void setAttributeBase(Zombie zombie, net.minecraft.world.entity.ai.attributes.Attribute attribute, double value) {
+        AttributeInstance instance = zombie.getAttribute(attribute);
+        if (instance != null && instance.getBaseValue() != value) {
+            instance.setBaseValue(value);
         }
     }
 
     private static void equipSpawnVariant(Zombie zombie) {
         RandomSource random = zombie.getRandom();
-        double hellKnightChance = isInNether(zombie) ? NETHER_HELL_KNIGHT_CHANCE : HELL_KNIGHT_CHANCE;
         double roll = random.nextDouble();
+        if (roll < DIGGER_CHANCE) {
+            setTrait(zombie, TRAIT_DIGGER);
+            equipDigger(zombie);
+            return;
+        }
 
-        if (roll < hellKnightChance) {
+        roll -= DIGGER_CHANCE;
+        if (roll < KNIGHT_TRAIT_CHANCE) {
+            setTrait(zombie, TRAIT_KNIGHT);
+            equipKnightTrait(zombie);
+            return;
+        }
+
+        roll -= KNIGHT_TRAIT_CHANCE;
+        if (roll < SCOUT_CHANCE) {
+            setTrait(zombie, TRAIT_SCOUT);
+            clearEquipment(zombie);
+            return;
+        }
+
+        roll -= SCOUT_CHANCE;
+        if (roll < CHASER_CHANCE) {
+            setTrait(zombie, TRAIT_CHASER);
+            equipChaser(zombie);
+            return;
+        }
+
+        roll -= CHASER_CHANCE;
+        if (roll < GUARD_CHANCE) {
+            setTrait(zombie, TRAIT_GUARD);
+            equipGuard(zombie);
+            return;
+        }
+
+        setTrait(zombie, TRAIT_COWARD);
+        clearEquipment(zombie);
+    }
+
+    private static void setTrait(Zombie zombie, String trait) {
+        zombie.getPersistentData().putString(NBT_TRAIT, trait);
+    }
+
+    private static String getTrait(Zombie zombie) {
+        return zombie.getPersistentData().getString(NBT_TRAIT);
+    }
+
+    private static void equipDigger(Zombie zombie) {
+        clearArmor(zombie);
+        zombie.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+        zombie.setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+        Item[] toolGroup = DIGGER_TOOL_GROUPS[zombie.getRandom().nextInt(DIGGER_TOOL_GROUPS.length)];
+        zombie.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(randomItem(zombie, toolGroup)));
+        zombie.setDropChance(EquipmentSlot.MAINHAND, 0.10F);
+    }
+
+    private static void equipKnightTrait(Zombie zombie) {
+        double hellChanceWithinKnight = isInNether(zombie) ? NETHER_HELL_KNIGHT_CHANCE : HELL_KNIGHT_CHANCE;
+        double eliteChanceWithinKnight = Math.max(ELITE_ZOMBIE_KNIGHT_CHANCE, 0.20D);
+        double roll = zombie.getRandom().nextDouble();
+        if (roll < hellChanceWithinKnight) {
             equipHellKnight(zombie);
-            return;
-        }
-
-        roll -= hellKnightChance;
-        if (roll < ELITE_ZOMBIE_KNIGHT_CHANCE) {
+        } else if (roll < hellChanceWithinKnight + eliteChanceWithinKnight) {
             equipEliteZombieKnight(zombie);
-            return;
-        }
-
-        roll -= ELITE_ZOMBIE_KNIGHT_CHANCE;
-        if (roll < ZOMBIE_KNIGHT_CHANCE) {
+        } else {
             equipZombieKnight(zombie);
-            return;
         }
+    }
 
-        equipRandomWeapon(zombie);
+    private static void equipChaser(Zombie zombie) {
+        zombie.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+        zombie.setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+        zombie.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(randomItem(zombie, ANY_AXES)));
+        zombie.setDropChance(EquipmentSlot.MAINHAND, 0.12F);
+        maybeEquipRandomArmor(zombie);
+    }
+
+    private static void equipGuard(Zombie zombie) {
+        zombie.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+        zombie.setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+        zombie.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(randomItem(zombie, ANY_SWORDS)));
+        zombie.setDropChance(EquipmentSlot.MAINHAND, 0.12F);
         maybeEquipRandomArmor(zombie);
         maybeEquipShield(zombie);
+    }
+
+    private static Item randomItem(Zombie zombie, Item[] items) {
+        return items[zombie.getRandom().nextInt(items.length)];
     }
 
     private static void equipZombieKnight(Zombie zombie) {
@@ -471,20 +613,26 @@ public final class EliteZombieEvents {
         zombie.setDropChance(EquipmentSlot.MAINHAND, 0.25F);
     }
 
-    private static void equipRandomWeapon(Zombie zombie) {
-        RandomSource random = zombie.getRandom();
-        ItemStack weapon = random.nextBoolean() ? new ItemStack(Items.IRON_SWORD) : new ItemStack(Items.IRON_AXE);
-        int enchantLevel = 12 + random.nextInt(18);
-        EnchantmentHelper.enchantItem(random, weapon, enchantLevel, true);
-        zombie.setItemSlot(EquipmentSlot.MAINHAND, weapon);
-        zombie.setDropChance(EquipmentSlot.MAINHAND, 0.12F);
-    }
-
     private static void equipEnchantedWeapon(Zombie zombie, Item item, int basePower, int randomPower, float dropChance) {
         int enchantLevel = basePower + zombie.getRandom().nextInt(randomPower + 1);
         ItemStack weapon = EnchantmentHelper.enchantItem(zombie.getRandom(), new ItemStack(item), enchantLevel, true);
         zombie.setItemSlot(EquipmentSlot.MAINHAND, weapon);
         zombie.setDropChance(EquipmentSlot.MAINHAND, dropChance);
+    }
+
+    private static void clearEquipment(Zombie zombie) {
+        clearArmor(zombie);
+        zombie.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        zombie.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+        zombie.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        zombie.setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+    }
+
+    private static void clearArmor(Zombie zombie) {
+        for (EquipmentSlot slot : ARMOR_SLOTS) {
+            zombie.setItemSlot(slot, ItemStack.EMPTY);
+            zombie.setDropChance(slot, 0.0F);
+        }
     }
 
     private static void maybeEquipRandomArmor(Zombie zombie) {
@@ -536,6 +684,11 @@ public final class EliteZombieEvents {
     }
 
     private static void maybeDrinkPotionBeforeAttack(Zombie zombie, Player player) {
+        String trait = getTrait(zombie);
+        if (TRAIT_DIGGER.equals(trait) || TRAIT_SCOUT.equals(trait) || TRAIT_COWARD.equals(trait)) {
+            return;
+        }
+
         CompoundTag data = zombie.getPersistentData();
         if (data.getBoolean(NBT_POTION_DECIDED)) {
             int drinkTicks = data.getInt(NBT_POTION_DRINK_TICKS);
@@ -589,6 +742,234 @@ public final class EliteZombieEvents {
         }
         data.remove(NBT_POTION_DISPLAY);
         zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.GENERIC_DRINK, SoundSource.HOSTILE, 0.8F, 1.1F);
+    }
+
+    private static boolean handleTraitBehavior(Zombie zombie, Player player, boolean canSeeTarget) {
+        String trait = getTrait(zombie);
+        if (tickSpecialPotion(zombie, player)) {
+            return true;
+        }
+
+        if (player == null) {
+            if (TRAIT_COWARD.equals(trait) && zombie.getHealth() < zombie.getMaxHealth() && !zombie.getPersistentData().contains(NBT_INVESTIGATE_X)) {
+                return startSpecialPotion(zombie, SPECIAL_POTION_HARMING_HEAL);
+            }
+            return false;
+        }
+
+        if (canSeeTarget && isStaggeredTick(zombie, SPECIAL_ABILITY_INTERVAL)) {
+            maybeReportTarget(zombie, player, trait);
+        }
+
+        if (TRAIT_COWARD.equals(trait)) {
+            handleCowardBehavior(zombie, player, canSeeTarget);
+            return true;
+        }
+
+        if (TRAIT_KNIGHT.equals(trait) && handleKnightSurvival(zombie, player)) {
+            return true;
+        }
+
+        if (TRAIT_KNIGHT.equals(trait) && canSeeTarget && zombie.distanceToSqr(player) > 256.0D && !zombie.hasEffect(MobEffects.MOVEMENT_SPEED)) {
+            startSpecialPotion(zombie, SPECIAL_POTION_SPEED);
+        }
+
+        if (TRAIT_CHASER.equals(trait) && canSeeTarget && isStaggeredTick(zombie, SPECIAL_ABILITY_INTERVAL)) {
+            maybeUseEnderPearl(zombie, player);
+        }
+
+        return false;
+    }
+
+    private static void maybeReportTarget(Zombie zombie, Player player, String trait) {
+        CompoundTag data = zombie.getPersistentData();
+        if (data.getInt(NBT_REPORT_COOLDOWN) > 0) {
+            return;
+        }
+
+        double range;
+        if (TRAIT_SCOUT.equals(trait)) {
+            range = SCOUT_REPORT_RANGE;
+        } else if (TRAIT_KNIGHT.equals(trait)) {
+            range = KNIGHT_REPORT_RANGE;
+        } else {
+            return;
+        }
+
+        data.putInt(NBT_REPORT_COOLDOWN, TRAIT_REPORT_COOLDOWN + zombie.getRandom().nextInt(20));
+        if (zombie.level() instanceof ServerLevel level) {
+            emitNoise(level, player, player.position(), range, true);
+        }
+    }
+
+    private static boolean handleKnightSurvival(Zombie zombie, Player player) {
+        if (zombie.getHealth() > zombie.getMaxHealth() * 0.35F) {
+            return false;
+        }
+
+        fleeFromPlayer(zombie, player, 9.0D);
+        if (zombie.distanceToSqr(player) > 144.0D && zombie.getHealth() < zombie.getMaxHealth()) {
+            startSpecialPotion(zombie, SPECIAL_POTION_HARMING_HEAL);
+        }
+        return true;
+    }
+
+    private static void handleCowardBehavior(Zombie zombie, Player player, boolean canSeeTarget) {
+        if (canSeeTarget) {
+            if (zombie.getHealth() <= zombie.getMaxHealth() * 0.45F) {
+                if (!zombie.hasEffect(MobEffects.MOVEMENT_SPEED) && zombie.getRandom().nextBoolean()) {
+                    startSpecialPotion(zombie, SPECIAL_POTION_SPEED);
+                } else if (!zombie.hasEffect(MobEffects.INVISIBILITY)) {
+                    startSpecialPotion(zombie, SPECIAL_POTION_INVISIBILITY);
+                }
+            }
+            fleeFromPlayer(zombie, player, 11.0D);
+        }
+
+        if (zombie.distanceToSqr(player) > 196.0D && zombie.getHealth() < zombie.getMaxHealth()) {
+            startSpecialPotion(zombie, SPECIAL_POTION_HARMING_HEAL);
+        }
+    }
+
+    private static void fleeFromPlayer(Zombie zombie, Player player, double distance) {
+        if (!isStaggeredTick(zombie, TARGET_REPATH_CLOSE_TICKS) && !zombie.getNavigation().isDone()) {
+            return;
+        }
+
+        Vec3 away = zombie.position().subtract(player.position());
+        Vec3 horizontal = new Vec3(away.x, 0.0D, away.z);
+        if (horizontal.lengthSqr() < 0.001D) {
+            horizontal = new Vec3(zombie.getRandom().nextDouble() - 0.5D, 0.0D, zombie.getRandom().nextDouble() - 0.5D);
+        }
+
+        Vec3 destination = zombie.position().add(horizontal.normalize().scale(distance));
+        zombie.getNavigation().moveTo(destination.x, zombie.getY(), destination.z, FLEE_NAVIGATION_SPEED);
+    }
+
+    private static boolean startSpecialPotion(Zombie zombie, String kind) {
+        CompoundTag data = zombie.getPersistentData();
+        if (data.getInt(NBT_SPECIAL_POTION_TICKS) > 0 || data.getInt(NBT_SPECIAL_POTION_COOLDOWN) > 0) {
+            return false;
+        }
+
+        data.putString(NBT_SPECIAL_POTION_KIND, kind);
+        data.putInt(NBT_SPECIAL_POTION_TICKS, SPECIAL_POTION_DRINK_TICKS);
+        data.putInt(NBT_SPECIAL_POTION_COOLDOWN, SPECIAL_POTION_COOLDOWN);
+
+        if (zombie.getOffhandItem().isEmpty()) {
+            zombie.setItemSlot(EquipmentSlot.OFFHAND, getSpecialPotionStack(kind));
+            zombie.setDropChance(EquipmentSlot.OFFHAND, 0.0F);
+            data.putBoolean(NBT_SPECIAL_POTION_DISPLAY, true);
+        }
+
+        zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.GENERIC_DRINK, SoundSource.HOSTILE, 0.8F, 0.9F);
+        return true;
+    }
+
+    private static boolean tickSpecialPotion(Zombie zombie, Player player) {
+        CompoundTag data = zombie.getPersistentData();
+        int ticks = data.getInt(NBT_SPECIAL_POTION_TICKS);
+        if (ticks <= 0) {
+            return false;
+        }
+
+        zombie.getNavigation().stop();
+        if (player != null) {
+            zombie.getLookControl().setLookAt(player, 30.0F, 30.0F);
+        }
+        data.putInt(NBT_SPECIAL_POTION_TICKS, ticks - 1);
+
+        if (zombie.level() instanceof ServerLevel level && ticks % 7 == 0) {
+            level.sendParticles(ParticleTypes.WITCH, zombie.getX(), zombie.getY() + 1.0D, zombie.getZ(), 6, 0.22D, 0.35D, 0.22D, 0.01D);
+        }
+
+        if (ticks > 1) {
+            return true;
+        }
+
+        String kind = data.getString(NBT_SPECIAL_POTION_KIND);
+        if (SPECIAL_POTION_HARMING_HEAL.equals(kind)) {
+            zombie.heal(8.0F);
+        } else if (SPECIAL_POTION_SPEED.equals(kind)) {
+            zombie.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 20 * 35, 0));
+        } else if (SPECIAL_POTION_INVISIBILITY.equals(kind)) {
+            zombie.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, 20 * 20, 0));
+        }
+
+        if (data.getBoolean(NBT_SPECIAL_POTION_DISPLAY) && zombie.getOffhandItem().is(Items.POTION)) {
+            zombie.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+        }
+        data.remove(NBT_SPECIAL_POTION_TICKS);
+        data.remove(NBT_SPECIAL_POTION_KIND);
+        data.remove(NBT_SPECIAL_POTION_DISPLAY);
+        zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.GENERIC_DRINK, SoundSource.HOSTILE, 0.8F, 1.1F);
+        return false;
+    }
+
+    private static ItemStack getSpecialPotionStack(String kind) {
+        if (SPECIAL_POTION_HARMING_HEAL.equals(kind)) {
+            return PotionUtils.setPotion(new ItemStack(Items.POTION), Potions.HARMING);
+        }
+        if (SPECIAL_POTION_INVISIBILITY.equals(kind)) {
+            return PotionUtils.setPotion(new ItemStack(Items.POTION), Potions.INVISIBILITY);
+        }
+        return PotionUtils.setPotion(new ItemStack(Items.POTION), Potions.SWIFTNESS);
+    }
+
+    private static void maybeUseEnderPearl(Zombie zombie, Player player) {
+        CompoundTag data = zombie.getPersistentData();
+        double distanceSqr = zombie.distanceToSqr(player);
+        if (data.getInt(NBT_ENDER_PEARL_COOLDOWN) > 0 || distanceSqr < 144.0D || distanceSqr > 900.0D) {
+            return;
+        }
+
+        Optional<Vec3> destination = findEnderPearlDestination(zombie, player);
+        if (destination.isEmpty()) {
+            return;
+        }
+
+        data.putInt(NBT_ENDER_PEARL_COOLDOWN, ENDER_PEARL_COOLDOWN + zombie.getRandom().nextInt(60));
+        Vec3 pos = destination.get();
+        zombie.swing(InteractionHand.MAIN_HAND);
+        zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.ENDER_PEARL_THROW, SoundSource.HOSTILE, 0.9F, 0.9F);
+        zombie.teleportTo(pos.x, pos.y, pos.z);
+        zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.ENDERMAN_TELEPORT, SoundSource.HOSTILE, 0.9F, 1.05F);
+        if (zombie.level() instanceof ServerLevel level) {
+            level.sendParticles(ParticleTypes.PORTAL, zombie.getX(), zombie.getY() + 0.6D, zombie.getZ(), 24, 0.35D, 0.55D, 0.35D, 0.02D);
+        }
+    }
+
+    private static Optional<Vec3> findEnderPearlDestination(Zombie zombie, Player player) {
+        Vec3 fromPlayer = zombie.position().subtract(player.position());
+        Vec3 horizontal = new Vec3(fromPlayer.x, 0.0D, fromPlayer.z);
+        if (horizontal.lengthSqr() < 0.001D) {
+            horizontal = new Vec3(1.0D, 0.0D, 0.0D);
+        }
+
+        Vec3 direction = horizontal.normalize();
+        for (int i = 0; i < 5; i++) {
+            double angle = (i - 2) * 0.55D;
+            double cos = Math.cos(angle);
+            double sin = Math.sin(angle);
+            Vec3 rotated = new Vec3(direction.x * cos - direction.z * sin, 0.0D, direction.x * sin + direction.z * cos);
+            Vec3 candidate = player.position().add(rotated.scale(3.0D + i * 0.6D));
+            Optional<Vec3> safe = findSafeStandingPosition(zombie.level(), candidate);
+            if (safe.isPresent()) {
+                return safe;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Vec3> findSafeStandingPosition(Level level, Vec3 candidate) {
+        BlockPos base = BlockPos.containing(candidate.x, candidate.y, candidate.z);
+        for (int yOffset = 1; yOffset >= -2; yOffset--) {
+            BlockPos pos = base.offset(0, yOffset, 0);
+            if (level.getBlockState(pos).isAir() && level.getBlockState(pos.above()).isAir() && !level.getBlockState(pos.below()).isAir()) {
+                return Optional.of(Vec3.atBottomCenterOf(pos));
+            }
+        }
+        return Optional.empty();
     }
 
     private static void maybeRaiseShield(Zombie zombie, Player player) {
@@ -858,7 +1239,7 @@ public final class EliteZombieEvents {
 
         if (ticks >= BLOCK_BREAK_TICKS) {
             BlockState state = level.getBlockState(pos);
-            if (canZombieBreak(state)) {
+            if (canZombieBreak(zombie, state)) {
                 level.destroyBlock(pos, true, zombie);
                 level.levelEvent(2001, pos, Block.getId(state));
             }
@@ -877,15 +1258,36 @@ public final class EliteZombieEvents {
         };
 
         for (BlockPos pos : candidates) {
-            if (canZombieBreak(zombie.level().getBlockState(pos))) {
+            if (canZombieBreak(zombie, zombie.level().getBlockState(pos))) {
                 return Optional.of(pos);
             }
         }
         return Optional.empty();
     }
 
-    private static boolean canZombieBreak(BlockState state) {
-        return state.is(BlockTags.WOODEN_DOORS) || state.is(BlockTags.WOODEN_TRAPDOORS);
+    private static boolean canZombieBreak(Zombie zombie, BlockState state) {
+        if (state.is(BlockTags.WOODEN_DOORS) || state.is(BlockTags.WOODEN_TRAPDOORS)) {
+            return true;
+        }
+
+        return TRAIT_DIGGER.equals(getTrait(zombie)) && canDiggerToolBreak(zombie.getMainHandItem(), state);
+    }
+
+    private static boolean canDiggerToolBreak(ItemStack tool, BlockState state) {
+        Item item = tool.getItem();
+        if (item instanceof AxeItem) {
+            return state.is(BlockTags.MINEABLE_WITH_AXE);
+        }
+        if (item instanceof PickaxeItem) {
+            return state.is(BlockTags.MINEABLE_WITH_PICKAXE);
+        }
+        if (item instanceof ShovelItem) {
+            return state.is(BlockTags.MINEABLE_WITH_SHOVEL);
+        }
+        if (item instanceof HoeItem) {
+            return state.is(BlockTags.MINEABLE_WITH_HOE);
+        }
+        return false;
     }
 
     private static boolean isSameBreakTarget(CompoundTag data, BlockPos pos) {
@@ -912,13 +1314,22 @@ public final class EliteZombieEvents {
     }
 
     private static void maybePullPlayerWithFishingRod(Zombie zombie, Player player) {
-        CompoundTag data = zombie.getPersistentData();
-        double distanceSqr = zombie.distanceToSqr(player);
-        if (data.getInt(NBT_ROD_COOLDOWN) > 0 || distanceSqr < 100.0D || distanceSqr > 576.0D || !zombie.hasLineOfSight(player)) {
+        if (!canUseFishingRod(zombie)) {
             return;
         }
 
-        data.putInt(NBT_ROD_COOLDOWN, FISHING_ROD_MIN_COOLDOWN + zombie.getRandom().nextInt(FISHING_ROD_RANDOM_COOLDOWN));
+        CompoundTag data = zombie.getPersistentData();
+        double distanceSqr = zombie.distanceToSqr(player);
+        boolean guard = TRAIT_GUARD.equals(getTrait(zombie));
+        double minDistanceSqr = guard ? 49.0D : 100.0D;
+        double maxDistanceSqr = guard ? 784.0D : 576.0D;
+        if (data.getInt(NBT_ROD_COOLDOWN) > 0 || distanceSqr < minDistanceSqr || distanceSqr > maxDistanceSqr || !zombie.hasLineOfSight(player)) {
+            return;
+        }
+
+        int minCooldown = guard ? 55 : FISHING_ROD_MIN_COOLDOWN;
+        int randomCooldown = guard ? 45 : FISHING_ROD_RANDOM_COOLDOWN;
+        data.putInt(NBT_ROD_COOLDOWN, minCooldown + zombie.getRandom().nextInt(randomCooldown));
         zombie.getLookControl().setLookAt(player, 30.0F, 30.0F);
 
         if (zombie.getOffhandItem().isEmpty()) {
@@ -933,6 +1344,11 @@ public final class EliteZombieEvents {
         zombie.level().playSound(null, zombie.blockPosition(), SoundEvents.FISHING_BOBBER_THROW, SoundSource.HOSTILE, 1.0F, 0.8F + zombie.getRandom().nextFloat() * 0.2F);
         pullPlayerTowardZombie(zombie, player);
         zombie.getNavigation().moveTo(player, ATTACK_NAVIGATION_SPEED);
+    }
+
+    private static boolean canUseFishingRod(Zombie zombie) {
+        String trait = getTrait(zombie);
+        return TRAIT_GUARD.equals(trait) || TRAIT_KNIGHT.equals(trait);
     }
 
     private static void pullPlayerTowardZombie(Zombie zombie, Player player) {
@@ -955,6 +1371,9 @@ public final class EliteZombieEvents {
         CompoundTag data = zombie.getPersistentData();
         decrement(data, NBT_ROD_COOLDOWN);
         decrement(data, NBT_ROUTE_COOLDOWN);
+        decrement(data, NBT_REPORT_COOLDOWN);
+        decrement(data, NBT_ENDER_PEARL_COOLDOWN);
+        decrement(data, NBT_SPECIAL_POTION_COOLDOWN);
 
         int shieldTicks = data.getInt(NBT_SHIELD_UP_TICKS);
         if (shieldTicks > 0) {
