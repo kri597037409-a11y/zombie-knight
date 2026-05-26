@@ -1,7 +1,7 @@
 package com.sphxiw.elitezombies;
 
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -46,10 +46,12 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.MobSpawnEvent;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -74,11 +76,32 @@ public final class EliteZombieEvents {
     private static final int BLOCK_BREAK_SCAN_INTERVAL = 5;
     private static final int CLUSTER_SCAN_INTERVAL = 40;
     private static final int ROD_CHECK_INTERVAL = 10;
+    private static final int PLAYER_NOISE_INTERVAL = 10;
+    private static final int INVESTIGATION_REPATH_INTERVAL = 20;
+    private static final int SEARCH_WANDER_INTERVAL = 28;
+    private static final int TARGET_REPATH_CLOSE_TICKS = 8;
+    private static final int TARGET_REPATH_MID_TICKS = 16;
+    private static final int TARGET_REPATH_FAR_TICKS = 28;
+    private static final int LOST_SIGHT_GRACE_TICKS = 18;
+    private static final int SEARCH_MIN_TICKS = 60;
+    private static final int SEARCH_RANDOM_TICKS = 100;
     private static final int FISHING_ROD_MIN_COOLDOWN = 110;
     private static final int FISHING_ROD_RANDOM_COOLDOWN = 70;
     private static final double SPAWN_CLUSTER_RADIUS = 24.0D;
     private static final double ACTION_CLUSTER_RADIUS = 22.0D;
+    private static final double GROUP_PERSONAL_SPACE = 4.0D;
+    private static final double GROUP_MAX_DRIFT = 13.0D;
+    private static final double INVESTIGATION_CLOSE_DISTANCE_SQR = 6.25D;
+    private static final double WALK_NOISE_RANGE = 14.0D;
+    private static final double SPRINT_NOISE_RANGE = 26.0D;
+    private static final double SWIM_NOISE_RANGE = 18.0D;
+    private static final double ITEM_USE_NOISE_RANGE = 12.0D;
+    private static final double LIGHT_CHANGE_NOISE_RANGE = 24.0D;
+    private static final double ATTACK_NOISE_RANGE = 30.0D;
+    private static final double SURROUND_MIN_RADIUS = 3.0D;
+    private static final double SURROUND_MAX_RADIUS = 5.0D;
     private static final int MAX_ALLIES_TO_COMMAND = 8;
+    private static final int MAX_ZOMBIES_PER_STIMULUS = 24;
 
     private static final String NBT_INITIALIZED = "EliteZombiesInitialized";
     private static final String NBT_DEATH_ZOMBIE = "EliteZombiesDeathZombie";
@@ -93,6 +116,16 @@ public final class EliteZombieEvents {
     private static final String NBT_BREAK_Y = "EliteZombiesBreakY";
     private static final String NBT_BREAK_Z = "EliteZombiesBreakZ";
     private static final String NBT_BREAK_TICKS = "EliteZombiesBreakTicks";
+    private static final String NBT_LAST_SEEN_X = "EliteZombiesLastSeenX";
+    private static final String NBT_LAST_SEEN_Y = "EliteZombiesLastSeenY";
+    private static final String NBT_LAST_SEEN_Z = "EliteZombiesLastSeenZ";
+    private static final String NBT_LOST_SIGHT_TICKS = "EliteZombiesLostSightTicks";
+    private static final String NBT_INVESTIGATE_X = "EliteZombiesInvestigateX";
+    private static final String NBT_INVESTIGATE_Y = "EliteZombiesInvestigateY";
+    private static final String NBT_INVESTIGATE_Z = "EliteZombiesInvestigateZ";
+    private static final String NBT_SEARCH_TICKS = "EliteZombiesSearchTicks";
+    private static final String NBT_ROUTE_COOLDOWN = "EliteZombiesRouteCooldown";
+    private static final String NBT_NEARBY_ZOMBIES = "EliteZombiesNearbyZombies";
 
     private static final EquipmentSlot[] ARMOR_SLOTS = {
             EquipmentSlot.HEAD,
@@ -152,14 +185,27 @@ public final class EliteZombieEvents {
         if (!(target instanceof Player player) || !target.isAlive()) {
             resetBlockBreaking(zombie);
             if (isStaggeredTick(zombie, CLUSTER_SCAN_INTERVAL)) {
-                maybeRegroupWithNearbyZombies(zombie, null);
+                maybeMaintainLooseGroup(zombie, null);
             }
+            tickInvestigation(zombie);
             return;
         }
 
+        boolean canSeeTarget = zombie.hasLineOfSight(player);
         if (isStaggeredTick(zombie, CLUSTER_SCAN_INTERVAL)) {
-            maybeRegroupWithNearbyZombies(zombie, player);
+            maybeMaintainLooseGroup(zombie, canSeeTarget ? player : null);
         }
+
+        if (canSeeTarget) {
+            rememberLastSeen(zombie, player);
+            zombie.getPersistentData().remove(NBT_LOST_SIGHT_TICKS);
+            clearInvestigation(zombie);
+            improveTargetNavigation(zombie, player);
+        } else if (handleLostSight(zombie, player)) {
+            tickInvestigation(zombie);
+            return;
+        }
+
         maybeDrinkPotionBeforeAttack(zombie, player);
         maybeRaiseShield(zombie, player);
         maybeDodgeRangedPlayer(zombie, player);
@@ -177,13 +223,18 @@ public final class EliteZombieEvents {
             return;
         }
 
-        if (!hasShield(zombie)) {
+        DamageSource source = event.getSource();
+        Entity attacker = source.getEntity();
+        if (!(attacker instanceof Player player)) {
             return;
         }
 
-        DamageSource source = event.getSource();
-        Entity attacker = source.getEntity();
-        if (!(attacker instanceof Player) || !isInFrontOfZombie(zombie, attacker)) {
+        receiveStimulus(zombie, player, player.position(), true);
+        if (zombie.level() instanceof ServerLevel level) {
+            emitNoise(level, player, player.position(), ATTACK_NOISE_RANGE, true);
+        }
+
+        if (!hasShield(zombie) || !isInFrontOfZombie(zombie, attacker)) {
             return;
         }
 
@@ -224,6 +275,44 @@ public final class EliteZombieEvents {
         level.addFreshEntity(zombie);
     }
 
+    @SubscribeEvent
+    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || event.player.level().isClientSide() || !(event.player instanceof ServerPlayer player)) {
+            return;
+        }
+
+        if (!player.isAlive() || player.isSpectator() || player.tickCount % PLAYER_NOISE_INTERVAL != 0) {
+            return;
+        }
+
+        double noiseRange = getPlayerMovementNoiseRange(player);
+        if (noiseRange > 0.0D) {
+            emitNoise(player.serverLevel(), player, player.position(), noiseRange, false);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockPlaced(BlockEvent.EntityPlaceEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+
+        if (event.getPlacedBlock().getLightEmission() > 0) {
+            emitNoise(level, player, Vec3.atCenterOf(event.getPos()), LIGHT_CHANGE_NOISE_RANGE, false);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockBroken(BlockEvent.BreakEvent event) {
+        if (!(event.getPlayer() instanceof ServerPlayer player) || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+
+        if (event.getState().getLightEmission() > 0) {
+            emitNoise(level, player, Vec3.atCenterOf(event.getPos()), LIGHT_CHANGE_NOISE_RANGE, false);
+        }
+    }
+
     private static boolean shouldReduceSpawn(MobSpawnType spawnType) {
         return spawnType == MobSpawnType.NATURAL
                 || spawnType == MobSpawnType.CHUNK_GENERATION
@@ -249,6 +338,68 @@ public final class EliteZombieEvents {
 
     private static boolean isInNether(Entity entity) {
         return entity.level().dimension() == Level.NETHER;
+    }
+
+    private static double getPlayerMovementNoiseRange(ServerPlayer player) {
+        Vec3 movement = player.getDeltaMovement();
+        double horizontalSpeedSqr = movement.x * movement.x + movement.z * movement.z;
+        double range = 0.0D;
+
+        if (player.isSwimming() && horizontalSpeedSqr > 0.003D) {
+            range = Math.max(range, SWIM_NOISE_RANGE);
+        } else if (player.isSprinting() && horizontalSpeedSqr > 0.01D) {
+            range = Math.max(range, SPRINT_NOISE_RANGE);
+        } else if (horizontalSpeedSqr > 0.006D) {
+            range = Math.max(range, player.isCrouching() ? 5.0D : WALK_NOISE_RANGE);
+        }
+
+        if (player.isUsingItem()) {
+            range = Math.max(range, ITEM_USE_NOISE_RANGE);
+        }
+
+        return range;
+    }
+
+    private static void emitNoise(ServerLevel level, Player source, Vec3 noisePos, double range, boolean forceTarget) {
+        AABB area = new AABB(noisePos, noisePos).inflate(range, 8.0D, range);
+        double rangeSqr = range * range;
+        int notified = 0;
+        for (Zombie zombie : level.getEntitiesOfClass(Zombie.class, area, other -> other.isAlive() && other.getType() == EntityType.ZOMBIE)) {
+            if (notified >= MAX_ZOMBIES_PER_STIMULUS) {
+                break;
+            }
+
+            if (zombie.position().distanceToSqr(noisePos) > rangeSqr) {
+                continue;
+            }
+
+            receiveStimulus(zombie, source, noisePos, forceTarget);
+            notified++;
+        }
+    }
+
+    private static void receiveStimulus(Zombie zombie, Player source, Vec3 stimulusPos, boolean forceTarget) {
+        if (!zombie.getPersistentData().getBoolean(NBT_INITIALIZED)) {
+            initializeEliteZombie(zombie, true);
+        }
+
+        boolean canSeeSource = source != null && source.isAlive() && zombie.hasLineOfSight(source);
+        if (forceTarget || canSeeSource) {
+            zombie.setTarget(source);
+            rememberLastSeen(zombie, source);
+            clearInvestigation(zombie);
+            zombie.getPersistentData().putInt(NBT_ROUTE_COOLDOWN, 0);
+            return;
+        }
+
+        if (!hasVisiblePlayerTarget(zombie)) {
+            startInvestigation(zombie, stimulusPos);
+        }
+    }
+
+    private static boolean hasVisiblePlayerTarget(Zombie zombie) {
+        LivingEntity target = zombie.getTarget();
+        return target instanceof Player player && player.isAlive() && zombie.hasLineOfSight(player);
     }
 
     private static void initializeEliteZombie(Zombie zombie, boolean randomGear) {
@@ -481,7 +632,145 @@ public final class EliteZombieEvents {
         zombie.getNavigation().moveTo(destination.x, zombie.getY(), destination.z, DODGE_NAVIGATION_SPEED);
     }
 
-    private static void maybeRegroupWithNearbyZombies(Zombie zombie, Player sharedTarget) {
+    private static void rememberLastSeen(Zombie zombie, Player player) {
+        CompoundTag data = zombie.getPersistentData();
+        data.putDouble(NBT_LAST_SEEN_X, player.getX());
+        data.putDouble(NBT_LAST_SEEN_Y, player.getY());
+        data.putDouble(NBT_LAST_SEEN_Z, player.getZ());
+    }
+
+    private static boolean handleLostSight(Zombie zombie, Player player) {
+        CompoundTag data = zombie.getPersistentData();
+        int lostSightTicks = data.getInt(NBT_LOST_SIGHT_TICKS) + 1;
+        data.putInt(NBT_LOST_SIGHT_TICKS, lostSightTicks);
+
+        if (data.contains(NBT_LAST_SEEN_X)) {
+            startInvestigation(zombie, getLastSeenPosition(data));
+        } else {
+            startInvestigation(zombie, player.position());
+        }
+
+        if (lostSightTicks >= LOST_SIGHT_GRACE_TICKS) {
+            zombie.setTarget(null);
+            return true;
+        }
+        return false;
+    }
+
+    private static void improveTargetNavigation(Zombie zombie, Player player) {
+        CompoundTag data = zombie.getPersistentData();
+        int routeCooldown = data.getInt(NBT_ROUTE_COOLDOWN);
+        if (routeCooldown > 0 && !zombie.getNavigation().isDone()) {
+            return;
+        }
+
+        double distanceSqr = zombie.distanceToSqr(player);
+        int nextCooldown;
+        if (distanceSqr <= 36.0D) {
+            nextCooldown = TARGET_REPATH_CLOSE_TICKS;
+        } else if (distanceSqr <= 196.0D) {
+            nextCooldown = TARGET_REPATH_MID_TICKS;
+        } else {
+            nextCooldown = TARGET_REPATH_FAR_TICKS;
+        }
+        data.putInt(NBT_ROUTE_COOLDOWN, nextCooldown + zombie.getRandom().nextInt(4));
+
+        if (distanceSqr < 4.0D) {
+            return;
+        }
+
+        Vec3 destination = player.position();
+        if (data.getInt(NBT_NEARBY_ZOMBIES) > 0 && distanceSqr > 9.0D) {
+            destination = getSurroundPosition(zombie, player, distanceSqr);
+        }
+
+        if (zombie.position().distanceToSqr(destination) > 2.25D) {
+            zombie.getNavigation().moveTo(destination.x, destination.y, destination.z, ATTACK_NAVIGATION_SPEED);
+        }
+    }
+
+    private static Vec3 getSurroundPosition(Zombie zombie, Player player, double distanceSqr) {
+        int slot = Math.floorMod(zombie.getUUID().hashCode(), 8);
+        double angle = slot * (Math.PI / 4.0D);
+        double radius = distanceSqr < 100.0D ? SURROUND_MIN_RADIUS : SURROUND_MAX_RADIUS;
+        return new Vec3(player.getX() + Math.cos(angle) * radius, player.getY(), player.getZ() + Math.sin(angle) * radius);
+    }
+
+    private static boolean tickInvestigation(Zombie zombie) {
+        CompoundTag data = zombie.getPersistentData();
+        if (!data.contains(NBT_INVESTIGATE_X)) {
+            return false;
+        }
+
+        if (hasVisiblePlayerTarget(zombie)) {
+            clearInvestigation(zombie);
+            return false;
+        }
+
+        Vec3 investigationPos = getInvestigationPosition(data);
+        double distanceSqr = zombie.position().distanceToSqr(investigationPos);
+        if (distanceSqr > INVESTIGATION_CLOSE_DISTANCE_SQR) {
+            data.remove(NBT_SEARCH_TICKS);
+            if (isStaggeredTick(zombie, INVESTIGATION_REPATH_INTERVAL) || zombie.getNavigation().isDone()) {
+                zombie.getNavigation().moveTo(investigationPos.x, investigationPos.y, investigationPos.z, REGROUP_NAVIGATION_SPEED);
+            }
+            return true;
+        }
+
+        int searchTicks = data.getInt(NBT_SEARCH_TICKS);
+        if (searchTicks <= 0) {
+            searchTicks = SEARCH_MIN_TICKS + zombie.getRandom().nextInt(SEARCH_RANDOM_TICKS + 1);
+        }
+
+        if (searchTicks <= 1) {
+            clearInvestigation(zombie);
+            return false;
+        }
+
+        data.putInt(NBT_SEARCH_TICKS, searchTicks - 1);
+        if (isStaggeredTick(zombie, SEARCH_WANDER_INTERVAL) || zombie.getNavigation().isDone()) {
+            Vec3 wanderPos = getSearchWanderPosition(zombie, investigationPos);
+            zombie.getNavigation().moveTo(wanderPos.x, wanderPos.y, wanderPos.z, REGROUP_NAVIGATION_SPEED);
+        }
+        return true;
+    }
+
+    private static void startInvestigation(Zombie zombie, Vec3 position) {
+        CompoundTag data = zombie.getPersistentData();
+        if (data.contains(NBT_INVESTIGATE_X) && getInvestigationPosition(data).distanceToSqr(position) <= 9.0D) {
+            return;
+        }
+
+        data.putDouble(NBT_INVESTIGATE_X, position.x);
+        data.putDouble(NBT_INVESTIGATE_Y, position.y);
+        data.putDouble(NBT_INVESTIGATE_Z, position.z);
+        data.remove(NBT_SEARCH_TICKS);
+        data.putInt(NBT_ROUTE_COOLDOWN, 0);
+    }
+
+    private static void clearInvestigation(Zombie zombie) {
+        CompoundTag data = zombie.getPersistentData();
+        data.remove(NBT_INVESTIGATE_X);
+        data.remove(NBT_INVESTIGATE_Y);
+        data.remove(NBT_INVESTIGATE_Z);
+        data.remove(NBT_SEARCH_TICKS);
+    }
+
+    private static Vec3 getLastSeenPosition(CompoundTag data) {
+        return new Vec3(data.getDouble(NBT_LAST_SEEN_X), data.getDouble(NBT_LAST_SEEN_Y), data.getDouble(NBT_LAST_SEEN_Z));
+    }
+
+    private static Vec3 getInvestigationPosition(CompoundTag data) {
+        return new Vec3(data.getDouble(NBT_INVESTIGATE_X), data.getDouble(NBT_INVESTIGATE_Y), data.getDouble(NBT_INVESTIGATE_Z));
+    }
+
+    private static Vec3 getSearchWanderPosition(Zombie zombie, Vec3 center) {
+        double angle = zombie.getRandom().nextDouble() * Math.PI * 2.0D;
+        double radius = 2.0D + zombie.getRandom().nextDouble() * 5.0D;
+        return new Vec3(center.x + Math.cos(angle) * radius, center.y, center.z + Math.sin(angle) * radius);
+    }
+
+    private static void maybeMaintainLooseGroup(Zombie zombie, Player sharedTarget) {
         if (!(zombie.level() instanceof ServerLevel level)) {
             return;
         }
@@ -489,10 +778,12 @@ public final class EliteZombieEvents {
         AABB area = zombie.getBoundingBox().inflate(ACTION_CLUSTER_RADIUS, 8.0D, ACTION_CLUSTER_RADIUS);
         List<Zombie> nearbyZombies = level.getEntitiesOfClass(Zombie.class, area, other -> other != zombie && other.isAlive() && other.getType() == EntityType.ZOMBIE);
         if (nearbyZombies.isEmpty()) {
+            zombie.getPersistentData().putInt(NBT_NEARBY_ZOMBIES, 0);
             return;
         }
 
         int usedAllies = 0;
+        double nearestAllyDistanceSqr = Double.MAX_VALUE;
         double x = zombie.getX();
         double y = zombie.getY();
         double z = zombie.getZ();
@@ -505,21 +796,37 @@ public final class EliteZombieEvents {
             x += ally.getX();
             y += ally.getY();
             z += ally.getZ();
-            if (sharedTarget != null && ally.getTarget() != sharedTarget && ally.hasLineOfSight(sharedTarget)) {
-                ally.setTarget(sharedTarget);
-                ally.getNavigation().moveTo(sharedTarget, ATTACK_NAVIGATION_SPEED);
+            nearestAllyDistanceSqr = Math.min(nearestAllyDistanceSqr, zombie.distanceToSqr(ally));
+            if (sharedTarget != null && ally.getTarget() != sharedTarget) {
+                receiveStimulus(ally, sharedTarget, sharedTarget.position(), true);
             }
         }
 
+        CompoundTag data = zombie.getPersistentData();
+        data.putInt(NBT_NEARBY_ZOMBIES, usedAllies);
         double divisor = usedAllies + 1.0D;
         Vec3 center = new Vec3(x / divisor, y / divisor, z / divisor);
         double distanceToCenter = zombie.position().distanceToSqr(center);
-        boolean hasTarget = sharedTarget != null;
-        if (!hasTarget && distanceToCenter > 25.0D) {
-            zombie.getNavigation().moveTo(center.x, center.y, center.z, REGROUP_NAVIGATION_SPEED);
-        } else if (hasTarget && distanceToCenter > 81.0D && zombie.distanceToSqr(sharedTarget) > 36.0D) {
-            zombie.getNavigation().moveTo(center.x, center.y, center.z, REGROUP_NAVIGATION_SPEED);
+
+        if (sharedTarget != null) {
+            return;
         }
+
+        boolean tooFarFromGroup = distanceToCenter > GROUP_MAX_DRIFT * GROUP_MAX_DRIFT;
+        boolean tooCloseToAlly = nearestAllyDistanceSqr < GROUP_PERSONAL_SPACE * GROUP_PERSONAL_SPACE;
+        if (tooFarFromGroup || tooCloseToAlly) {
+            Vec3 loosePosition = getLooseGroupPosition(zombie, center);
+            if (zombie.position().distanceToSqr(loosePosition) > 4.0D) {
+                zombie.getNavigation().moveTo(loosePosition.x, loosePosition.y, loosePosition.z, REGROUP_NAVIGATION_SPEED);
+            }
+        }
+    }
+
+    private static Vec3 getLooseGroupPosition(Zombie zombie, Vec3 center) {
+        int slot = Math.floorMod(zombie.getUUID().hashCode(), 12);
+        double angle = slot * (Math.PI / 6.0D);
+        double radius = GROUP_PERSONAL_SPACE + (slot % 3) * 1.5D;
+        return new Vec3(center.x + Math.cos(angle) * radius, center.y, center.z + Math.sin(angle) * radius);
     }
 
     private static void maybeBreakInteractiveBlock(Zombie zombie, Player player) {
@@ -647,6 +954,7 @@ public final class EliteZombieEvents {
     private static void tickCooldownsAndDisplays(Zombie zombie) {
         CompoundTag data = zombie.getPersistentData();
         decrement(data, NBT_ROD_COOLDOWN);
+        decrement(data, NBT_ROUTE_COOLDOWN);
 
         int shieldTicks = data.getInt(NBT_SHIELD_UP_TICKS);
         if (shieldTicks > 0) {
